@@ -1,6 +1,6 @@
 /**
  * MikScooter — Examenkiezer page custom code
- * Version: 1.0.0
+ * Version: 1.1.0
  * Last updated: 2026-04-10
  * Source: https://github.com/GitVoltality/mikscooter-examenkiezer
  *
@@ -10,68 +10,78 @@
  */
 
 //
-// === PAYMENT RECOVERY BANNER ===
-// Toont een banner als user een recente paymentlink heeft (<12 min)
-// zodat ze niet opnieuw hoeven te starten na een gefaalde redirect
+// === PAYMENT RECOVERY BANNER v2 ===
+// Toont banner alleen als de vorige redirect ECHT gestrand is
+// (geen beforeunload heeft gevuurd → user heeft Mollie nooit bereikt)
 //
 document.addEventListener('DOMContentLoaded', function() {
     try {
         var savedLink = sessionStorage.getItem('mikscooter_last_paymentlink');
         var savedTime = parseInt(sessionStorage.getItem('mikscooter_last_paymentlink_time') || '0', 10);
+        var redirectCompleted = sessionStorage.getItem('mikscooter_last_redirect_completed') === '1';
         var ageMinutes = (Date.now() - savedTime) / 1000 / 60;
-        
-        // Link is bruikbaar tot 12 min (Mollie default ~15 min, 3 min veiligheidsbuffer)
-        if (savedLink && savedTime > 0 && ageMinutes < 12) {
+
+        // Cleanup verlopen of voltooide attempts
+        if (savedLink && (ageMinutes >= 12 || redirectCompleted)) {
+            sessionStorage.removeItem('mikscooter_last_paymentlink');
+            sessionStorage.removeItem('mikscooter_last_paymentlink_time');
+            sessionStorage.removeItem('mikscooter_last_redirect_completed');
+
+            if (typeof trackEvent === 'function') {
+                trackEvent('payment_recovery_skipped', {
+                    reason: redirectCompleted ? 'redirect_completed' : 'expired',
+                    ageMinutes: Math.round(ageMinutes)
+                });
+            }
+            return;
+        }
+
+        // Banner alleen tonen voor gestrande redirects
+        if (savedLink && savedTime > 0 && ageMinutes < 12 && !redirectCompleted) {
             var banner = document.createElement('div');
             banner.id = 'payment-recovery-banner';
-            banner.style.cssText = 
+            banner.style.cssText =
                 'position:fixed;top:0;left:0;right:0;background:#ffcc00;color:#000;' +
                 'padding:14px 16px;text-align:center;z-index:999997;' +
                 'box-shadow:0 2px 12px rgba(0,0,0,0.2);font-size:0.95rem;' +
                 'font-family:Arial,sans-serif;line-height:1.4;';
-            banner.innerHTML = 
-                '<b>Je had een betaling gestart.</b> ' +
+            banner.innerHTML =
+                '<b>Je betaling werd niet voltooid.</b> ' +
                 '<a href="' + savedLink + '" id="payment-recovery-link" ' +
                 'style="color:#000;text-decoration:underline;font-weight:bold;margin:0 8px;">' +
-                'Verder met betalen →</a>' +
+                'Probeer opnieuw →</a>' +
                 '<span id="payment-recovery-close" ' +
                 'style="cursor:pointer;margin-left:12px;opacity:0.6;font-size:1.2rem;">' +
                 '✕</span>';
             document.body.insertBefore(banner, document.body.firstChild);
-            
-            // Sluitknop
+
             document.getElementById('payment-recovery-close').addEventListener('click', function() {
                 try {
                     sessionStorage.removeItem('mikscooter_last_paymentlink');
                     sessionStorage.removeItem('mikscooter_last_paymentlink_time');
+                    sessionStorage.removeItem('mikscooter_last_redirect_completed');
                 } catch(e) {}
                 banner.remove();
                 if (typeof trackEvent === 'function') {
                     trackEvent('payment_recovery_dismissed', {});
                 }
             });
-            
-            // Track wanneer user op de link klikt
+
             document.getElementById('payment-recovery-link').addEventListener('click', function() {
                 if (typeof trackEvent === 'function') {
-                    trackEvent('payment_recovery_link_clicked', { 
-                        ageMinutes: Math.round(ageMinutes) 
+                    trackEvent('payment_recovery_link_clicked', {
+                        ageMinutes: Math.round(ageMinutes)
                     });
                 }
             });
-            
+
             if (typeof trackEvent === 'function') {
-                trackEvent('payment_recovery_banner_shown', { 
-                    ageMinutes: Math.round(ageMinutes) 
+                trackEvent('payment_recovery_banner_shown', {
+                    ageMinutes: Math.round(ageMinutes)
                 });
             }
-        } else if (savedLink) {
-            // Link is verlopen, cleanup
-            sessionStorage.removeItem('mikscooter_last_paymentlink');
-            sessionStorage.removeItem('mikscooter_last_paymentlink_time');
         }
-    } catch(e) { 
-        // sessionStorage kan uitgeschakeld zijn (private mode, strikte browser)
+    } catch(e) {
         console.warn('[Payment Recovery] sessionStorage niet beschikbaar:', e);
     }
 });
@@ -496,17 +506,22 @@ document.addEventListener('DOMContentLoaded', function() {
         "iDeal openen..."
     ];
     var textInterval = null;
-    
+    var fadeTimeout = null;
+    var statusUpdaterActive = false;
+
     function startStatusUpdates() {
         if (!statusText) return;
+        statusUpdaterActive = true;
         var index = 0;
         statusText.textContent = statusMessages[0];
-        
+
         textInterval = setInterval(function() {
+            if (!statusUpdaterActive) return;
             if (index < statusMessages.length - 1) {
                 index++;
                 statusText.classList.add('fade-out');
-                setTimeout(function() {
+                fadeTimeout = setTimeout(function() {
+                    if (!statusUpdaterActive) return;
                     statusText.textContent = statusMessages[index];
                     statusText.classList.remove('fade-out');
                 }, 300);
@@ -516,11 +531,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }, 900);
     }
-    
+
     function stopStatusUpdates() {
+        statusUpdaterActive = false;
         if (textInterval) {
             clearInterval(textInterval);
             textInterval = null;
+        }
+        if (fadeTimeout) {
+            clearTimeout(fadeTimeout);
+            fadeTimeout = null;
+        }
+        if (statusText) {
+            statusText.classList.remove('fade-out');
         }
     }
     
@@ -695,33 +718,42 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             if (result.success && result.paymentlink) {
-                // === FIX 7: Bewaar link + toon fallback UI + stalled detection ===
+                // === FIX 7 v2: Bewaar link met "completed" vlag op false ===
                 try {
                     sessionStorage.setItem('mikscooter_last_paymentlink', result.paymentlink);
                     sessionStorage.setItem('mikscooter_last_paymentlink_time', Date.now().toString());
+                    sessionStorage.removeItem('mikscooter_last_redirect_completed');
                 } catch(err) { /* sessionStorage uitgeschakeld */ }
-                
+
+                // Stop status updates VOLLEDIG voordat we de UI vervangen
                 stopStatusUpdates();
-                
+
                 if (typeof trackEvent === 'function') {
-                    trackEvent('payment_redirect_starting', { 
-                        paymentId: result.paymentId || 'unknown' 
+                    trackEvent('payment_redirect_starting', {
+                        paymentId: result.paymentId || 'unknown'
                     });
                 }
-                
-                // Toon meteen klikbare fallback UI
-                showFallbackUI(result.paymentlink, 'normal');
-                
-                // Track of beforeunload vuurt (detectie gestalde navigatie)
+
+                // Toon fallback UI op next microtask (na pending callbacks)
+                Promise.resolve().then(function() {
+                    showFallbackUI(result.paymentlink, 'normal');
+                });
+
+                // Track of beforeunload vuurt
                 var autoRedirectStartTime = Date.now();
                 var unloadFired = false;
-                window.addEventListener('beforeunload', function() { unloadFired = true; });
-                
-                // Auto-redirect na 1.5s (was 150ms - nu zichtbaar voor user)
-                setTimeout(function() { 
-                    window.location.href = result.paymentlink; 
-                }, 1500);
-                
+                window.addEventListener('beforeunload', function() {
+                    unloadFired = true;
+                    try {
+                        sessionStorage.setItem('mikscooter_last_redirect_completed', '1');
+                    } catch(e) {}
+                });
+
+                // Auto-redirect na 600ms (sneller dan voorheen, knop is al zichtbaar)
+                setTimeout(function() {
+                    window.location.href = result.paymentlink;
+                }, 600);
+
                 // Stalled navigation detectie na 10s
                 setTimeout(function() {
                     if (!unloadFired && document.visibilityState === 'visible') {
@@ -734,7 +766,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         showFallbackUI(result.paymentlink, 'stalled');
                     }
                 }, 10000);
-                
+
             } else {
                 throw new Error(result.error || 'Geen betaallink ontvangen');
             }
