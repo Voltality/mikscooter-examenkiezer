@@ -1,13 +1,37 @@
 /**
  * MikScooter — Examenkiezer page custom code
- * Version: 1.1.0
- * Last updated: 2026-04-10
+ * Version: 1.1.1
+ * Last updated: 2026-04-17
  * Source: https://github.com/GitVoltality/mikscooter-examenkiezer
  *
  * Note: this file was migrated from the Webflow "Before </body>" custom code
  * field, which contained 18 separate <script> blocks. The tags have been
  * stripped; each block's contents run top-to-bottom as they did in Webflow.
  */
+
+//
+// === NATIVE-SUBMIT SAFETY NET (capturing phase) ===
+// Outermost guard: always cancel a native submit of the MikScooter-ExamenKiezer
+// form, regardless of whether any later handler registered successfully.
+// Without this, if a later DOMContentLoaded block early-returns (e.g. a missing
+// optional element), Webflow's default form handler will POST url-encoded data
+// straight to form.action (the Make.com webhook), Make will happily create a
+// Mollie payment, and the response body containing the iDeal link is then
+// discarded by Webflow's generic success panel — leaving the user stranded.
+// This runs at the capturing phase so it fires before any other listener.
+//
+document.addEventListener('submit', function(e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute('data-name') === 'MikScooter-ExamenKiezer') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof trackEvent === 'function') {
+            trackEvent('form_submit_capture_blocked', {
+                activeElementId: document.activeElement ? document.activeElement.id : null
+            });
+        }
+    }
+}, true);
 
 //
 // === PAYMENT RECOVERY BANNER v2 ===
@@ -584,7 +608,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    if (!form || !betaalButton || !loader) return;
+    // Do NOT gate the whole handler on `loader`. The loader is cosmetic; the click
+    // interception (which calls e.preventDefault() and does the proxy fetch) is
+    // essential. If #payment-loader isn't in the DOM yet, we still need to register
+    // the click handler — otherwise a native Webflow submit leaks through to Make.com.
+    if (!form || !betaalButton) return;
+    if (!loader && typeof trackEvent === 'function') {
+        trackEvent('payment_loader_missing_at_init', {});
+    }
     
     betaalButton.addEventListener('click', async function(e) {
         if (window.MikTracking) window.MikTracking.formSubmitAttempts++;
@@ -635,9 +666,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 }
                 
-                loader.style.display = 'flex';
+                if (loader) loader.style.display = 'flex';
                 startStatusUpdates();
-                
+
                 setTimeout(function() {
                     stopStatusUpdates();
                     showFallbackUI(existingLink, 'reused');
@@ -647,8 +678,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
         } catch(err) { /* sessionStorage niet beschikbaar - ga door */ }
-        
-        loader.style.display = 'flex';
+
+        if (loader) loader.style.display = 'flex';
         startStatusUpdates();
         
         var originalText = betaalButton.value || betaalButton.textContent;
@@ -779,9 +810,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             }
             
-            loader.style.display = 'none';
+            if (loader) loader.style.display = 'none';
             stopStatusUpdates();
-            
+
             var errorDiv = document.querySelector('.w-form-fail');
             if (errorDiv) {
                 errorDiv.style.display = 'block';
@@ -1387,51 +1418,60 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Extra beveiliging: blokkeer native form submit
+    // Blokkeer ALTIJD native form submit. De proxy-fetch in de Betalen_MikScooter
+    // click handler roept form.submit() nooit aan — een native submit is per definitie
+    // ongewenst, want die zou URL-encoded formdata rechtstreeks naar form.action
+    // (de Make.com webhook) POSTen waarna de response met paymentlink verloren gaat
+    // in Webflow's generieke success-panel. Eerdere versie liet submit door bij
+    // "payment button + valide velden" in de aanname dat de click handler al
+    // preventDefault had geroepen; dat is onveilig als die handler (om welke reden
+    // dan ook) niet geregistreerd werd.
     form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
         var activeElement = document.activeElement;
-        var isPaymentButton = activeElement && 
-            (activeElement.id === 'Betalen_MikScooter' || 
+        var isPaymentButton = activeElement &&
+            (activeElement.id === 'Betalen_MikScooter' ||
              activeElement.id === 'Betaal-Knop-Activator');
-        
-        // Check verplichte velden
+
+        // Validatie alleen voor gebruikersfeedback (blokkeren gebeurt hierboven al)
         var emailField = document.getElementById('E-mail');
         var postcodeField = document.getElementById('Postcode');
         var huisnummerField = document.getElementById('Huisnummer');
-        
+
         var emailValid = emailField && emailField.value && emailField.value.includes('@');
         var postcodeValid = postcodeField && postcodeField.value && postcodeField.value.length >= 6;
         var huisnummerValid = huisnummerField && huisnummerField.value && huisnummerField.value.length > 0;
-        
-        // Blokkeer ALTIJD tenzij via betaalknop EN alle velden geldig
-        if (!isPaymentButton || !emailValid || !postcodeValid || !huisnummerValid) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (typeof trackEvent === 'function') {
-                trackEvent('form_submit_blocked', {
-                    reason: !isPaymentButton ? 'not_payment_button' : 'invalid_fields',
-                    emailValid: emailValid,
-                    postcodeValid: postcodeValid,
-                    huisnummerValid: huisnummerValid
-                });
-            }
-            
-            // Toon alleen foutmelding als het via de betaalknop was
-            if (isPaymentButton) {
-                var invalidFields = [];
-                if (!emailValid) invalidFields.push('e-mailadres');
-                if (!postcodeValid) invalidFields.push('postcode');
-                if (!huisnummerValid) invalidFields.push('huisnummer');
-                
-                alert('Vul eerst de volgende velden in: ' + invalidFields.join(', '));
-                
-                if (!emailValid && emailField) emailField.focus();
-                else if (!postcodeValid && postcodeField) postcodeField.focus();
-                else if (!huisnummerValid && huisnummerField) huisnummerField.focus();
-            }
-            
-            return false;
+        var allFieldsValid = emailValid && postcodeValid && huisnummerValid;
+
+        if (typeof trackEvent === 'function') {
+            trackEvent('form_submit_blocked', {
+                reason: !isPaymentButton
+                    ? 'not_payment_button'
+                    : (!allFieldsValid ? 'invalid_fields' : 'native_submit_prevented'),
+                isPaymentButton: isPaymentButton,
+                emailValid: emailValid,
+                postcodeValid: postcodeValid,
+                huisnummerValid: huisnummerValid,
+                activeElementId: activeElement ? activeElement.id : null
+            });
         }
+
+        // Toon foutmelding alleen als de gebruiker via de betaalknop kwam met ongeldige velden
+        if (isPaymentButton && !allFieldsValid) {
+            var invalidFields = [];
+            if (!emailValid) invalidFields.push('e-mailadres');
+            if (!postcodeValid) invalidFields.push('postcode');
+            if (!huisnummerValid) invalidFields.push('huisnummer');
+
+            alert('Vul eerst de volgende velden in: ' + invalidFields.join(', '));
+
+            if (!emailValid && emailField) emailField.focus();
+            else if (!postcodeValid && postcodeField) postcodeField.focus();
+            else if (!huisnummerValid && huisnummerField) huisnummerField.focus();
+        }
+
+        return false;
     });
 });
