@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/) and versions foll
 
 ## examenkiezer.js
 
+### v1.1.2 — 2026-04-17
+- Docs/refs only: GitHub repository owner renamed from `GitVoltality` to `Voltality`. Updated `Source:` URL in `examenkiezer.js` header, `README.md`, and `purge.sh` (`REPO=` variable). Git remote updated to match.
+- No code or behaviour changes. Both jsDelivr URLs continue to serve identical bytes thanks to GitHub's automatic redirect — old `cdn.jsdelivr.net/gh/GitVoltality/…` URLs keep working, new canonical path is `cdn.jsdelivr.net/gh/Voltality/…`.
+- **Action required in Webflow:** update the page-level `<script src>` tag to the new canonical URL to remove the redirect dependency. Instructions in README.
+
 ### v1.1.1 — 2026-04-17
 - Fix: native Webflow form submit could leak through to the Make.com webhook in sessions where `examenkiezer.js` failed to register its click interception (e.g. when `#payment-loader` was not in the DOM at `DOMContentLoaded`). Make.com would create a valid Mollie payment, but the response body containing the iDeal link was discarded by Webflow's success panel, leaving the user with no payment link. Evidence: multiple customers (Merel Jansen, Jolinde Arends, Levi de Wals, Sid Besems) produced Airtable records with Mollie URLs stored but reported seeing no payment link and retried unsuccessfully.
 - Added capturing-phase submit blocker at the top of the file as a belt-and-braces safety net — cancels native submit of `form[data-name="MikScooter-ExamenKiezer"]` before any other listener, even if the rest of the script fails to initialise.

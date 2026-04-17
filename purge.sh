@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-REPO="GitVoltality/mikscooter-examenkiezer"
+REPO="Voltality/mikscooter-examenkiezer"
 FILE="${1:-}"
 
 if [ -z "$FILE" ]; then

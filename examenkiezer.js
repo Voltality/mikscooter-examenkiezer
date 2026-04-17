@@ -1,8 +1,8 @@
 /**
  * MikScooter — Examenkiezer page custom code
- * Version: 1.1.1
+ * Version: 1.1.2
  * Last updated: 2026-04-17
- * Source: https://github.com/GitVoltality/mikscooter-examenkiezer
+ * Source: https://github.com/Voltality/mikscooter-examenkiezer
  *
  * Note: this file was migrated from the Webflow "Before </body>" custom code
  * field, which contained 18 separate <script> blocks. The tags have been

@@ -12,7 +12,7 @@ Custom JavaScript for the MikScooter Webflow examenkiezer page, served via the j
 
 | Script | Webflow page | jsDelivr URL |
 |---|---|---|
-| `examenkiezer.js` | `/examenkiezer` | https://cdn.jsdelivr.net/gh/GitVoltality/mikscooter-examenkiezer@main/examenkiezer.js |
+| `examenkiezer.js` | `/examenkiezer` | https://cdn.jsdelivr.net/gh/Voltality/mikscooter-examenkiezer@main/examenkiezer.js |
 
 ---
 
@@ -21,7 +21,7 @@ Custom JavaScript for the MikScooter Webflow examenkiezer page, served via the j
 Each script is loaded from Webflow's page-level "Before `</body>`" custom code field with a single tag, for example:
 
 ```html
-<script src="https://cdn.jsdelivr.net/gh/GitVoltality/mikscooter-examenkiezer@main/examenkiezer.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Voltality/mikscooter-examenkiezer@main/examenkiezer.js"></script>
 ```
 
 ---
@@ -69,7 +69,7 @@ git push
 
 **Emergency URL pin in Webflow** (if a faster rollback is needed) — swap the Webflow `<script>` tag to a known-good tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/GitVoltality/mikscooter-examenkiezer@examenkiezer-v1.0.0/examenkiezer.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Voltality/mikscooter-examenkiezer@examenkiezer-v1.0.0/examenkiezer.js"></script>
 ```
 
 Tag-pinned URLs are immutably cached, so this rollback is instant and permanent until you swap back to `@main`.
